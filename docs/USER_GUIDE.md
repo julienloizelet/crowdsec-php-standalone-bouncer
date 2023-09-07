@@ -29,14 +29,20 @@ This project provides a CrowdSec "standalone" bouncer for PHP-based websites. It
 
 ## Features
 
-- CrowdSec Local API Support
+- Apply a `ban` or `captcha` remediation
+  - Block user access for a `ban` remediation with a 403 customizable page (ban wall).
+  - Display a 401 customizable captcha page (captcha wall) for a `captcha` remediation.
+- CrowdSec Local API (`LAPI`) support
   - Handle `ip`, `range` and `country` scoped decisions
   - `Live mode` or `Stream mode`
-- Support IpV4 and Ipv6 (Ipv6 range decisions are yet only supported in `Live mode`) 
+  - Api key and TLS authentication
+- CrowdSec Central API (`CAPI`) support
+  - Handle `ip` and `range` scoped decisions
+  - Support CrowdSec community blocklist and subscribed third party blocklists
+- Support IpV4 and Ipv6 (Ipv6 range decisions are yet only supported in `LAPI`'s `Live mode`) 
 - Large PHP matrix compatibility: 7.2, 7.3, 7.4, 8.0, 8.1 and 8.2
 - Built-in support for the most known cache systems Redis, Memcached and PhpFiles
   - Clear, prune and refresh the bouncer cache
-
 - Cap remediation level (ex: for sensitives websites: ban will be capped to captcha)
 
 
@@ -76,9 +82,22 @@ Here is the list of available settings that you could define in the `scripts/set
 - `excluded_uris`: array of URIs that will not be bounced.
 
 
-- `stream_mode`: true to enable stream mode, false to enable the live mode. Default to false. By default, the `live mode` is enabled. The first time a user connects to your website, this mode means that the IP will be checked directly by the CrowdSec API. The rest of your user’s browsing will be even more transparent thanks to the fully customizable cache system. But you can also activate the `stream mode`. This mode allows you to constantly feed the bouncer with the malicious IP list via a background task (CRON), making it to be even faster when checking the IP of your visitors. Besides, if your site has a lot of unique visitors at the same time, this will not influence the traffic to the API of your CrowdSec instance.
+- `stream_mode`: (**only configurable for LAPI bouncer as CAPI bouncer only works in stream mode**) 
 
-### Local API Connection
+  `true` to enable stream mode, `false` to enable the live mode. Default to false for `LAPI` bouncer. Always `true` for `CAPI` bouncer.
+
+  - `live mode`: The first time a stranger connects to your website, its IP will be checked directly by the CrowdSec LAPI. The rest of your user’s browsing will be even more transparent thanks to the fully customizable cache system. 
+  - `stream mode`: This mode allows you to constantly feed the bouncer with the malicious IP list via a background "refresh cache" task (CRON), making it to be even faster when checking the IP of your visitors. Besides, if your site has a lot of unique visitors at the same time, this will not influence the traffic to the `LAPI` of your CrowdSec instance. 
+    To see how to set up the "refresh cache" cron task, see [Stream mode below](#stream-mode).
+
+### Api connection
+
+- `api_timeout`: In seconds. The timeout when calling LAPI or CAPI. Default to 120 sec. If set to a negative value,
+  timeout will be unlimited.
+- `use_curl`: By default, this lib call the REST LAPI and CAPI  endpoints using `file_get_contents` method (`allow_url_fopen` is required).
+  You can set `use_curl` to `true` in order to use `cURL` request instead (`ext-curl` is in then required)
+
+### LAPI Connection
 
 - `auth_type`: Select from `api_key` and `tls`. Choose if you want to use an API-KEY or a TLS (pki) authentification.
   TLS authentication is only available if you use CrowdSec agent with a version superior to 1.4.0.
@@ -113,13 +132,42 @@ Here is the list of available settings that you could define in the `scripts/set
 
 - `api_url`: Define the URL to your Local API server, default to `http://localhost:8080`.
 
+### CAPI connection
 
-- `api_timeout`: In seconds. The timeout when calling Local API. Default to 120 sec. If set to a negative value,
-  timeout will be unlimited.
+- `use_capi`: `true` or `false`.
+
+  Set `true` use CAPI instead of LAPI remediations for the standalone bouncer.
+
+  Default to `false`: bouncer uses a LAPI instance.
+
+- `capi_storage_directory_path`: Absolute path to store CAPI credentials files.
+
+  **Make sure this path exists and is not publicly accessible.** [See security note below](#security-note).
+
+- `env`: only accepts two values : `dev` and `prod`. 
+
+  This setting is not required. If you don't set any value, `dev` will be used by default.
+
+  It will mainly change the called CAPI url:
+  - `https://api.dev.crowdsec.net/v2/` for the `dev` environment
+  - `https://api.crowdsec.net/v2/` for the `prod` one.
+
+- `scenarios`: This `scenarios` setting **is required**.
+
+  You have to pass an array of CrowdSec scenarios that will be used to log in your watcher. 
+  You should find a list of available scenarios on the [CrowdSec hub collections page](https://hub.crowdsec.net/browse/).
 
 
-- `use_curl`: By default, this lib call the REST Local API using `file_get_contents` method (`allow_url_fopen` is required).
-  You can set `use_curl` to `true` in order to use `cURL` request instead (`ext-curl` is in then required)
+  Each scenario must match the regular expression `#^[A-Za-z0-9]{0,16}\/[A-Za-z0-9_-]{0,64}$#`.
+
+- `machine_id_prefix`: This setting is not required.
+
+  When you make your first call with a `CAPI` client, a `machine_id` will be generated and stored through your storage 
+  implementation. This `machine_id` is a string of length 48 composed of characters matching the regular expression `#^[a-z0-9]+$#`.
+
+  The `machine_id_prefix` setting allows to set a custom prefix to this `machine_id`. It must be a string matching the regular expression `#^[a-z0-9]{0,16}$#`. 
+
+  The final generated `machine_id` will still have a length of 48.
 
 ### Cache
 
@@ -246,6 +294,7 @@ Here is the list of available settings that you could define in the `scripts/set
 Some files should not be publicly accessible because they may contain sensitive data:
 
 - Setting file `settings.php`
+- CAPI credentials storage files
 - Log files
 - Cache files of the File system cache
 - TLS authentication files
@@ -253,7 +302,7 @@ Some files should not be publicly accessible because they may contain sensitive 
 
 If you define publicly accessible folders in the settings, be sure to add rules to deny access to these files.
 
-In the following example, we will suppose that you use a folder `crowdsec` with sub-folders `logs`, `cache`, `tls` and `geolocation`.
+In the following example, we will suppose that you use a folder `crowdsec` with sub-folders `logs`, `cache`, `tls`, `storage` and `geolocation`.
 
 If you are using Nginx, you could use the following snippet to modify your website configuration file:
 
@@ -263,7 +312,7 @@ server {
    ...
    ...
    # Deny all attempts to access some folders of the crowdsec standalone bouncer
-   location ~ /crowdsec/(settings|logs|cache|tls|geolocation) {
+   location ~ /crowdsec/(settings|logs|cache|tls|storage|geolocation) {
            deny all;
    }
    ...
@@ -278,6 +327,7 @@ Redirectmatch 403 crowdsec/settings
 Redirectmatch 403 crowdsec/logs/
 Redirectmatch 403 crowdsec/cache/
 Redirectmatch 403 crowdsec/tls/
+Redirectmatch 403 crowdsec/storage/
 Redirectmatch 403 crowdsec/geolocation/
 ```
 
@@ -286,3 +336,40 @@ Redirectmatch 403 crowdsec/geolocation/
 - There is no need to protect the `logs` folder if you disable debug and prod logging.
 - There is no need to protect the `tls` folder if you use Bouncer API key authentication type.
 - There is no need to protect the `geolocation` folder if you don't use the geolocation feature.
+- There is no need to protect the `storage` folder if you don't use a CAPI bouncer.
+
+## Cron tasks
+
+### Stream mode
+
+To use the stream mode, you first have to set the `stream_mode` setting value to `true` in your `script/settings.php` file. 
+
+Then, you could edit the web server user (e.g. `www-data`) crontab: 
+
+```shell
+sudo -u www-data crontab -e
+```
+
+and add the following line
+
+```shell
+*/15 * * * * /usr/bin/php /var/www/crowdsec-standalone-bouncer/scripts/refresh-cache.php
+```
+
+In this example, cache is refreshed every 15 minutes, but you can modify the cron expression depending on your needs.
+
+### Cache pruning
+
+If you use the PHP file system as cache, you should prune the cache with a cron job:
+
+```shell
+sudo -u www-data crontab -e
+```
+
+and add the following line
+
+```shell
+0 0 * * * /usr/bin/php /var/www/crowdsec-standalone-bouncer/scripts/prune-cache.php
+```
+
+In this example, cache is pruned at midnight every day, but you can modify the cron expression depending on your needs.

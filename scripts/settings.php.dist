@@ -14,6 +14,7 @@
 use CrowdSecStandalone\Constants;
 
 return [
+
     // ============================================================================#
     // Bouncer configs
     // ============================================================================#
@@ -39,7 +40,7 @@ return [
      */
     'trust_ip_forward_array' => [],
     /**
-     * By default, the lib call the REST LAPI using file_get_contents method (allow_url_fopen is required).
+     * By default, the lib call the REST API's endpoints using file_get_contents method (allow_url_fopen is required).
      * Set 'use_curl' to true in order to use cURL request instead (curl is in then required).
      */
     'use_curl' => false,
@@ -122,18 +123,76 @@ return [
     ],
 
     // ============================================================================#
-    // Client configs
+    // CAPI configs
+    // ============================================================================#
+
+    /** Choose if bouncer should use CAPI instead of LAPI remediations
+     *
+     * By default, bouncer is used with a LAPI instance.
+     * Set 'use_capi' to true in order to use CAPI.
+     */
+    'use_capi' => false,
+
+    /** Absolute path to store CAPI credentials files.
+     *
+     * Only used if above "use_capi" setting is true
+     *
+     * Important note: be sure this path won't be publicly accessible
+     */
+    'capi_storage_directory_path' => __DIR__ . '/.storage',
+
+    /**
+     * Choose between "dev" and "prod" CAPI environment. Default to "dev".
+     *
+     * Only used if above "use_capi" setting is true
+     * It will mainly change the called CAPI url:
+     * - `https://api.dev.crowdsec.net/v2/` for the `dev` environment
+     * - `https://api.crowdsec.net/v2/` for the `prod` one.
+     *
+     */
+    'env' => 'dev',
+
+     /** An array of CrowdSec scenarios that will be used to log in your watcher
+      *
+      * This `scenarios` setting is required if above "use_capi" setting is true
+      *
+      * For a list of available scenarios on the CrowdSec hub collections page: https://hub.crowdse.net/browse/
+      * Each scenario must match the regular expression `#^[A-Za-z0-9]{0,16}\/[A-Za-z0-9_-]{0,64}$#`.
+      *
+      */
+     'scenarios' => ['crowdsecurity/http-backdoors-attempts', 'crowdsecurity/http-bad-user-agent'],
+
+    /** Machine ID prefix for your CAPI engine
+     *
+     * This setting is not required.
+     * Only used if above "use_capi" setting is true.
+     *
+     * When you make your first call with a `CAPI` client, a `machine_id` will be generated and stored in a storage
+     * folder (see above setting "capi_storage_directory_path") .
+     * This `machine_id` is a string of length 48 composed of characters matching the regular expression
+     * `#^[a-z0-9]+$#`.
+     *
+     * The `machine_id_prefix` setting allows to set a custom prefix to this `machine_id`.
+     * It must be a string matching the regular expression `#^[a-z0-9]{0,16}$#`.
+     * The final generated `machine_id` will still have a length of 48.
+     */
+    'machine_id_prefix' => '',
+
+    // ============================================================================#
+    // LAPI Client configs (when "use_capi" is false)
     // ============================================================================#
 
     /** Select from 'api_key' and 'tls'.
      *
-     * Choose if you want to use an API-KEY or a TLS (pki) authentification
+     * Only used if above "use_capi" setting is false
+     * Choose if you want to use an API-KEY or a TLS (pki) authentication
      * TLS authentication is only available if you use CrowdSec agent with a version superior to 1.4.0
      */
     'auth_type' => Constants::AUTH_KEY,
 
     /** Absolute path to the bouncer certificate.
      *
+     * Only used if above "use_capi" setting is false
      * Only required if you choose tls as "auth_type"
      * Important note: be sure this path won't be publicly accessible
      */
@@ -141,12 +200,15 @@ return [
 
     /** Absolute path to the bouncer key.
      *
+     * Only used if above "use_capi" setting is false
      * Only required if you choose tls as "auth_type"
      * Important note: be sure this path won't be publicly accessible
      */
     'tls_key_path' => '',
 
     /** This option determines whether request handler verifies the authenticity of the peer's certificate.
+     *
+     * Only used if above "use_capi" setting is false
      *
      * When negotiating a TLS or SSL connection, the server sends a certificate indicating its identity.
      * If "tls_verify_peer" is set to true, request handler verifies whether the certificate is authentic.
@@ -157,6 +219,7 @@ return [
 
     /** Absolute path to the CA used to process peer verification.
      *
+     * Only used if above "use_capi" setting is false
      * Only required if you choose tls as "auth_type" and "tls_verify_peer" is true
      * Important note: be sure this path won't be publicly accessible
      */
@@ -164,6 +227,7 @@ return [
 
     /** The bouncer api key to access LAPI.
      *
+     * Only used if above "use_capi" setting is false
      * Key generated by the cscli (CrowdSec cli) command like "cscli bouncers add standalone-bouncer"
      * Only required if you choose api_key as "auth_type"
      */
@@ -171,12 +235,17 @@ return [
 
     /** Define the URL to your LAPI server, default to http://localhost:8080.
      *
+     * Only used if above "use_capi" setting is false
      * If you have installed the CrowdSec agent on your server, it should be "http://localhost:8080" or
      * "https://localhost:8080"
      */
     'api_url' => Constants::DEFAULT_LAPI_URL,
 
-    // In seconds. The timeout when calling LAPI. Must be greater or equal than 1. Defaults to 1 sec.
+    // ============================================================================#
+    // APIs connection configs
+    // ============================================================================#
+
+    // In seconds. The timeout when calling LAPI or CAPI. Must be greater or equal than 1. Defaults to 120 sec.
     'api_timeout' => Constants::API_TIMEOUT,
 
     // ============================================================================#
@@ -218,16 +287,12 @@ return [
     // Set the duration we keep in cache the fact that an IP is bad. In seconds. Defaults to 20.
     'bad_ip_cache_duration' => Constants::CACHE_EXPIRATION_FOR_BAD_IP,
 
-    /** true to enable stream mode, false to enable the live mode. Default to false.
+    /** true to enable stream mode, false to enable the live mode. Default to false for `LAPI` bouncer. Always `true` for `CAPI` bouncer.
      *
-     * By default, the `live mode` is enabled. The first time a stranger connects to your website, this mode
-     * means that the IP will be checked directly by the CrowdSec API. The rest of your user’s browsing will be
-     * even more transparent thanks to the fully customizable cache system.
+     * Only configurable for LAPI bouncer ("use_capi" set to false) as CAPI bouncer only works in stream mode
      *
-     * But you can also activate the `stream mode`. This mode allows you to constantly feed the bouncer with the
-     * malicious IP list via a background task (CRON), making it to be even faster when checking the IP of your
-     * visitors. Besides, if your site has a lot of unique visitors at the same time, this will not influence the
-     * traffic to the API of your CrowdSec instance.
+     * - `live mode`: The first time a stranger connects to your website, its IP will be checked directly by the CrowdSec LAPI. The rest of your user’s browsing will be even more transparent thanks to the fully customizable cache system.
+     * - `stream mode`: This mode allows you to constantly feed the bouncer with the malicious IP list via a background task (CRON), making it to be even faster when checking the IP of your visitors. Besides, if your site has a lot of unique visitors at the same time, this will not influence the traffic to the `LAPI` of your CrowdSec instance.
      */
     'stream_mode' => false,
 

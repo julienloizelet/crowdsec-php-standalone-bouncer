@@ -6,14 +6,15 @@ namespace CrowdSecStandalone;
 
 use CrowdSec\Common\Logger\FileLog;
 use CrowdSec\RemediationEngine\CacheStorage\CacheStorageException;
-use CrowdSec\RemediationEngine\LapiRemediation;
 use CrowdSecBouncer\AbstractBouncer;
 use CrowdSecBouncer\BouncerException;
+use CrowdSec\CapiClient\Storage\FileStorage;
+use CrowdSec\CapiClient\Constants as CapiConstants;
 use IPLib\Factory;
 use Psr\Log\LoggerInterface;
 
 /**
- * The bouncer class for standalone mode.
+ * The LAPI/CAPI bouncer class for standalone mode.
  *
  * @author    CrowdSec team
  *
@@ -25,8 +26,11 @@ use Psr\Log\LoggerInterface;
 class Bouncer extends AbstractBouncer
 {
     /**
+     * @param array $configs
+     * @param LoggerInterface|null $logger
      * @throws BouncerException
      * @throws CacheStorageException
+     * @throws \RuntimeException
      */
     public function __construct(array $configs, LoggerInterface $logger = null)
     {
@@ -35,11 +39,18 @@ class Bouncer extends AbstractBouncer
         $configs = $this->handleTrustedIpsConfig($configs);
         $configs['user_agent_version'] = Constants::VERSION;
         $configs['user_agent_suffix'] = Constants::USER_AGENT_SUFFIX;
-        $client = $this->handleClient($configs, $this->logger);
-        $cache = $this->handleCache($configs, $this->logger);
-        $remediation = new LapiRemediation($configs, $client, $cache, $this->logger);
+        $useCapi = $configs['use_capi'] ?? false;
+        $storage = null;
+        if($useCapi) {
+            $storagePath = $configs['capi_storage_directory_path']??'';
+            if(empty($storagePath)){
+                throw new BouncerException("'capi_storage_directory_path' setting is required to use CAPI.");
+            }
+            $env = $configs['env']??CapiConstants::ENV_DEV;
+            $storage = new FileStorage($storagePath, $env);
+        }
 
-        parent::__construct($configs, $remediation, $this->logger);
+        parent::__construct($configs, $storage, $this->logger);
     }
 
     /**

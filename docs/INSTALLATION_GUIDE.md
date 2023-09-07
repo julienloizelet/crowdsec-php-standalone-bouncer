@@ -158,40 +158,6 @@ or modify your `Virtual Host` accordingly:
 </VirtualHost>
 ```
 
-#### Stream mode cron task
-
-To use the stream mode, you first have to set the `stream_mode` setting value to `true` in your `script/settings.php` file. 
-
-Then, you could edit the web server user (e.g. `www-data`) crontab: 
-
-```shell
-sudo -u www-data crontab -e
-```
-
-and add the following line
-
-```shell
-*/15 * * * * /usr/bin/php /var/www/crowdsec-standalone-bouncer/scripts/refresh-cache.php
-```
-
-In this example, cache is refreshed every 15 minutes, but you can modify the cron expression depending on your needs.
-
-#### Cache pruning cron task
-
-If you use the PHP file system as cache, you should prune the cache with a cron job:
-
-```shell
-sudo -u www-data crontab -e
-```
-
-and add the following line
-
-```shell
-0 0 * * * /usr/bin/php /var/www/crowdsec-standalone-bouncer/scripts/prune-cache.php
-```
-
-In this example, cache is pruned at midnight every day, but you can modify the cron expression depending on your needs.
-
 ## Upgrade
 
 When a new release of the bouncer is available, you may want to update sources to the last version.
